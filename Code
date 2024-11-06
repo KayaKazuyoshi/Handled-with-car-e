@@ -1,0 +1,77 @@
+import pandas as pd
+import string
+import re
+
+autodata = pd.read_csv(r'https://raw.githubusercontent.com/KayaKazuyoshi/Handled-with-car-e/refs/heads/main/Automobile_data.csv', encoding='utf-8', sep=',', on_bad_lines='skip')
+
+print(autodata.head())
+print(autodata.describe()) #Let's see what's ahead of us!
+autodata.set_index('index', inplace=True) #After reading data, it was found that there is a column 'index' - we set it into a true index of the dataframe.
+
+#Renaming columns
+
+print(autodata.columns) #After .head() it was found that columns have to be renamed: without '-' and capitalized.
+autodata.columns = autodata.columns.str.replace('-', ' ')
+autodata.columns = autodata.columns.str.title()
+
+#Same goes for values in the dataframe - but what types are they?
+
+print(autodata.dtypes) #'Company', 'Body Style', 'Engine Type' and 'Num Of Cylinders are object type, but in fact they are texts. Let's covert them into strings.
+str_columns = ['Company', 'Body Style', 'Engine Type', 'Num Of Cylinders']
+
+for name in str_columns:
+    autodata[f'{name}'] = autodata[f'{name}'].astype('string')
+
+print(autodata.dtypes)
+
+#After changing all text values to strings, let's clean them from unnecessary characters
+char_to_del = [character for character in string.punctuation] + [character for character in string.whitespace] #We use string library and its methods to select all characters that are not letters, however...!
+char_to_del.remove(' ') #...there are possible spaces in strings that we don't want to remove (see 'Alfa Romeo'), so we have to omit that character.
+pattern = f'[{''.join(re.escape(character) for character in char_to_del)}]' #Preparing 'pattern' variable (string type) for regex out of char_to_del list (see below).
+#What happened: as re.sub accepts only single string as a pattern, we made the char_to_del characters 'invisible' for regex (as they have their own meaning in this library) and joined them into string.
+
+for name in str_columns:
+    autodata[f'{name}'] = autodata[f'{name}'].apply(lambda x: x.replace('-', ' ')) #We also observed above that 'Alfa Romeo' is actually 'alfa-romeo' -> we fix that now.
+
+#We are now prepared to use regex library for our cleaning
+
+for name in str_columns:
+    autodata[f'{name}'] = autodata[f'{name}'].apply(lambda x: re.sub(pattern, '', x)) #What happened? In each 'string' column, every value was checked in search for special characters. Once discovered, they were replaced with ''.
+    autodata[f'{name}'] = autodata[f'{name}'].apply(lambda x: x.lower()) #Lowering...
+    autodata[f'{name}'] = autodata[f'{name}'].apply(lambda x: x.title()) #...and capitalizing all strings. Some of the strings might have looked like 'ALfa rOMeo'. Once they're lowered and capitalized, they will look like 'Alfa Romeo'.
+
+for name in str_columns:
+    print(autodata[f'{name}'].unique()) #Now let's check whether everything went well. Almost...!
+
+autodata['Company'] = autodata['Company'].apply(lambda x: x.replace('Alfa Romero', 'Alfa Romeo')) #Do not offend motofans :)
+
+# The strings seem to be well-formatted, but what about these Num of Cylinders - we actually may need them to me int type!
+
+numbers_names = autodata['Num Of Cylinders'].unique().tolist()
+numbers = [4, 6, 5, 3, 12, 2, 8] #Not everything can be automatized, huh
+dict_numbers = dict(zip(numbers_names, numbers))
+
+autodata['Num Of Cylinders'] = autodata['Num Of Cylinders'].apply(lambda x: dict_numbers.get(x, x)) #Each key in the dict_numbers (i.e., the string number) is replaced with its value (the int number).
+print(autodata['Num Of Cylinders'].unique()) #Just checking - better safe than sorry.
+
+#Strings are handled (for now), how about other standard cleaning steps?
+
+autodata = autodata.drop_duplicates() #Another important thing to do is omit duplicates.
+print(autodata.isna().sum()) #Do we have any NaN values? Indeed - let's have a closer look at them
+na_values = autodata[autodata.isna().any(axis=1)]
+print(na_values) #It appears that there are just two missing prices: one for Isuzu and the other for Porsche. We have two options: to drop these rows (using autodata.drop_na()) or to set the price ourselves.
+
+#See how to insert the average of a specific car's brand.
+cars_to_price = ['Isuzu', 'Porsche'] #First, we have to write down the companies we know that have NaN values.
+
+for car in cars_to_price:
+    avg_price = autodata.loc[autodata['Company'] == f'{car}', 'Price'].mean() #Next, we calculate the average price of a car that have a specific brand: that is, either Isuzu or Porsche.
+    autodata.loc[(autodata['Company'] == f'{car}') & (pd.isna(autodata['Price'])), 'Price'] = avg_price #Finally, we set that average price, but only for those rows, that have a specific car's brand & their 'Price' column contains NaN value.
+
+#Time to analyze!
+
+pivot_price_company = pd.pivot_table(data=autodata, values='Price', columns=['Company', 'Body Style']) #Do we pay for the brand...?
+print(pivot_price_company)
+
+num_cylinders_price = autodata.groupby('Num Of Cylinders')['Price'].mean() #...for the number of cylinders...
+print(num_cylinders_price)
